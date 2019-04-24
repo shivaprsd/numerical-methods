@@ -42,18 +42,30 @@ module mtxop
         ! Read elements into a Matrix row wise.
         ! <row_label> is an optional str to be printed at the beginning of each
         ! row of input, followed by the row index (e.g. row1:, row2:, etc)
-        subroutine read_mtx(mtx, row_label)
+        subroutine read_mtx(mtx, row_label, file_name)
             implicit none
             type(Matrix), intent(inout) :: mtx
-            character(len=*), optional, intent(in) :: row_label
-            integer :: i, j
+            character(len=*), optional, intent(in) :: row_label, file_name
+            integer :: i, j, io, f = 5
+
+            if(present(file_name)) then
+                f = 10
+                open(f, file=file_name, action="read")
+            end if
 
             do i = 1, mtx%rows
                 if (present(row_label)) write (*, "(1x, a, i0, ':', a)",&
                                               &advance="no") row_label, i, TAB
-                read *, (mtx%elems(i, j), j = 1, mtx%cols)
+                do
+                    read (f, *, iostat=io) (mtx%elems(i, j), j = 1, mtx%cols)
+                    if (io == 0) exit
+                end do
             end do
-            write (*,*)     ! append '\n'
+            if (f == 5) then
+                write (*,*)     ! append '\n' if stdin
+            else
+                close(f)
+            end if
         end subroutine
 
         ! Print elements of a Matrix as a table.
@@ -213,6 +225,49 @@ module mtxop
                     s = dot_product(l%elems(i, :i-1), u%elems(:i-1, j))
                     l%elems(i, j) = (a%elems(i, j) - s) / u%elems(j, j)
                 end do
+            end do
+        end subroutine
+
+        function rotate(vec, n, left)
+            implicit none
+            real, dimension(:), intent(in) :: vec
+            integer, optional, intent(in) :: n
+            logical, optional, intent(in) :: left
+            real, dimension(size(vec)) :: rotate
+            integer :: i
+
+            if (present(n) .and. n < size(vec)) then
+                i = n
+            else
+                i = size(vec)
+            end if
+
+            if (.not. present(left) .or. left) then
+                rotate = (/ vec(2 : i), vec(1), vec(i + 1 :) /)
+            else
+                rotate = (/ vec(i), vec(1 : i - 1), vec(i + 1 :) /)
+            end if
+        end function
+
+        subroutine thomas(mtx)
+            implicit none
+            type(Matrix), target, intent(inout) :: mtx
+            real, dimension(:,:), pointer :: m
+            integer :: i
+
+            m => mtx%elems
+            do i = 2, mtx%rows
+                m(i, :) = m(i, :) * m(i - 1, 2) - rotate(m(i - 1, :), 3) * m(i, 1)
+            end do
+            do i = 1, mtx%rows
+                if (m(i, 2) == 0) then
+                    mtx%is_singular = .true.
+                    return
+                end if
+                m(i, :) = m(i, :) / m(i, 2)
+            end do
+            do i = mtx%rows - 1, 1, -1
+                m(i, :) = m(i, :) * m(i + 1, 2) - rotate(m(i + 1, :), 3, .false.) * m(i, 3)
             end do
         end subroutine
 end module mtxop
